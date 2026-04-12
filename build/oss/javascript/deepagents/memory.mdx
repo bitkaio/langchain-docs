@@ -11,34 +11,45 @@ This page covers **long-term memory**: memory that persists across conversations
 
 ## How memory works
 
-1. **Point the agent at memory files.** Pass file paths to `memory=` when creating the agent. A [backend](/oss/javascript/deepagents/backends) controls where those files are stored and who can access them.
-2. **Agent loads memory on startup.** At the start of each conversation, the agent reads its memory files into the system prompt.
-3. **Agent updates memory during the conversation.** As the agent learns new information, it uses its built-in `edit_file` tool to update memory files. Changes are persisted and available in the next conversation.
+1. **Point the agent at memory files.** Pass file paths to `memory=` when creating the agent. You can also pass [skills](/oss/javascript/deepagents/skills) via `skills=` for procedural memory (reusable instructions that tell the agent *how* to perform a task). A [backend](/oss/javascript/deepagents/backends) controls where files are stored and who can access them.
+2. **Agent reads memory.** The agent can load memory files into the system prompt at startup, or read them on demand during the conversation. For example, [skills](/oss/javascript/deepagents/skills) use on-demand loading: the agent reads only skill descriptions at startup, then reads the full skill file only when it matches a task. This keeps context lean until a capability is needed.
+3. **Agent updates memory (optional).** When the agent learns new information, it can use its built-in `edit_file` tool to update memory files. Updates can happen during the conversation (the default) or in the background between conversations via [background consolidation](#background-consolidation). Changes are persisted and available in the next conversation. Not all memory is writable: developer-defined [skills](/oss/javascript/deepagents/skills) and [organization policies](#organization-level-memory) are typically read-only. See [read-only vs writable memory](#read-only-vs-writable-memory) for details.
 
 The two most common patterns are [agent-scoped memory](#agent-scoped-memory) (shared across all users) and [user-scoped memory](#user-scoped-memory) (isolated per user).
 
-## Agent-scoped memory
+## Scoped memory
 
-Give the agent a shared memory file that all users read from and write to. The agent improves over time as it accumulates knowledge across every conversation. It can also learn and update [skills](/oss/javascript/deepagents/skills) when it has write access. See [skills as procedural memory](#skills-as-procedural-memory).
+Agent memory can be scoped so the same memory files are accessible to everyone using the agent or memory files can be individual to each user.
 
-The key is the backend namespace: setting it to `(assistant_id,)` means every conversation for this agent reads and writes the same memory file.
+### Agent-scoped memory
+
+Give the agent its own persistent identity that evolves over time. Agent-scoped memory is shared across all users, so the agent builds up its own persona, accumulated knowledge, and learned preferences through every conversation. As it interacts with users, it develops expertise, refines its approach, and remembers what works. It can also learn and update [skills](/oss/javascript/deepagents/skills) when it has write access.
+
+The key is the backend namespace: setting it to `(assistant_id,)` means every conversation for this agent reads and writes to the same memory file.
+
+
+
+<Note>
+Accessing `rt.serverInfo` requires `deepagents>=1.9.0`. On older versions, read the assistant ID from `getConfig().metadata.assistantId` instead.
+</Note>
+
 
 
 
 ```typescript
 import { createDeepAgent, CompositeBackend, StateBackend, StoreBackend } from "deepagents";
-import { getConfig } from "@langchain/langgraph";
 
 const agent = createDeepAgent({
   memory: ["/memories/AGENTS.md"],
+  skills: ["/skills/"],
   backend: new CompositeBackend(
     new StateBackend(),
     {
       "/memories/": new StoreBackend({
-        namespace: (ctx) => {
-          const config = getConfig();
-          return [config.metadata.assistantId];
-        },
+        namespace: (rt) => [rt.serverInfo.assistantId],  // [!code highlight]
+      }),
+      "/skills/": new StoreBackend({
+        namespace: (rt) => [rt.serverInfo.assistantId],  // [!code highlight]
       }),
     },
   ),
@@ -46,7 +57,78 @@ const agent = createDeepAgent({
 ```
 
 
-## User-scoped memory
+<Accordion title="Full example: seed memory and invoke">
+
+Populate the store with initial memories, then invoke the agent across two threads to see it remember and update what it learns.
+
+
+
+```typescript
+import { v4 as uuidv4 } from "uuid";
+import { createDeepAgent, CompositeBackend, StateBackend, StoreBackend, createFileData } from "deepagents";
+import { InMemoryStore } from "@langchain/langgraph";
+
+const store = new InMemoryStore();  // Use platform store when deploying to LangSmith
+
+// Seed the memory file
+await store.put(
+  ["my-agent"],
+  "/memories/AGENTS.md",
+  createFileData(`## Response style
+- Keep responses concise
+- Use code examples where possible
+`),
+);
+
+// Seed a skill
+await store.put(
+  ["my-agent"],
+  "/skills/langgraph-docs/SKILL.md",
+  createFileData(`---
+name: langgraph-docs
+description: Fetch relevant LangGraph documentation to provide accurate guidance.
+---
+
+# langgraph-docs
+
+Use the fetch_url tool to read https://docs.langchain.com/llms.txt, then fetch relevant pages.
+`),
+);
+
+const agent = createDeepAgent({
+  memory: ["/memories/AGENTS.md"],
+  skills: ["/skills/"],
+  backend: (rt) => new CompositeBackend(
+    new StateBackend(rt),
+    {
+      "/memories/": new StoreBackend(rt, {
+        namespace: (rt) => ["my-agent"],
+      }),
+      "/skills/": new StoreBackend(rt, {
+        namespace: (rt) => ["my-agent"],
+      }),
+    },
+  ),
+  store,
+});
+
+// Thread 1: the agent learns a new preference and saves it to memory
+const config1 = { configurable: { thread_id: uuidv4() } };
+await agent.invoke({
+  messages: [{ role: "user", content: "I prefer detailed explanations. Remember that." }],
+}, config1);
+
+// Thread 2: the agent reads memory and applies the preference
+const config2 = { configurable: { thread_id: uuidv4() } };
+await agent.invoke({
+  messages: [{ role: "user", content: "Explain how transformers work." }],
+}, config2);
+```
+
+
+</Accordion>
+
+### User-scoped memory
 
 Give each user their own memory file. The agent remembers preferences, context, and history per user while core agent instructions stay fixed. Users can also have per-user [skills](/oss/javascript/deepagents/skills) if stored in a user-scoped backend.
 
@@ -59,11 +141,15 @@ import { createDeepAgent, CompositeBackend, StateBackend, StoreBackend } from "d
 
 const agent = createDeepAgent({
   memory: ["/memories/preferences.md"],
+  skills: ["/skills/"],
   backend: new CompositeBackend(
     new StateBackend(),
     {
       "/memories/": new StoreBackend({
-        namespace: (ctx) => [ctx.runtime.context.userId],
+        namespace: (rt) => [rt.serverInfo.user.identity],
+      }),
+      "/skills/": new StoreBackend({
+        namespace: (rt) => [rt.serverInfo.user.identity],
       }),
     },
   ),
@@ -71,38 +157,113 @@ const agent = createDeepAgent({
 ```
 
 
+<Accordion title="Full example: isolated memory across users">
+
+Seed per-user memories and invoke the agent as two different users. Each user sees only their own preferences.
+
+
+
+```typescript
+import { v4 as uuidv4 } from "uuid";
+import { createDeepAgent, CompositeBackend, StateBackend, StoreBackend, createFileData } from "deepagents";
+import { InMemoryStore } from "@langchain/langgraph";
+
+const store = new InMemoryStore();  // Use platform store when deploying to LangSmith
+
+// Seed preferences for two users
+await store.put(
+  ["user-alice"],
+  "/memories/preferences.md",
+  createFileData(`## Preferences
+- Likes concise bullet points
+- Prefers Python examples
+`),
+);
+await store.put(
+  ["user-bob"],
+  "/memories/preferences.md",
+  createFileData(`## Preferences
+- Likes detailed explanations
+- Prefers TypeScript examples
+`),
+);
+
+// Seed a skill for Alice
+await store.put(
+  ["user-alice"],
+  "/skills/langgraph-docs/SKILL.md",
+  createFileData(`---
+name: langgraph-docs
+description: Fetch relevant LangGraph documentation to provide accurate guidance.
+---
+
+# langgraph-docs
+
+Use the fetch_url tool to read https://docs.langchain.com/llms.txt, then fetch relevant pages.
+`),
+);
+
+const agent = createDeepAgent({
+  memory: ["/memories/preferences.md"],
+  skills: ["/skills/"],
+  backend: (rt) => new CompositeBackend(
+    new StateBackend(rt),
+    {
+      "/memories/": new StoreBackend(rt, {
+        namespace: (rt) => [rt.serverInfo.user.identity],
+      }),
+      "/skills/": new StoreBackend(rt, {
+        namespace: (rt) => [rt.serverInfo.user.identity],
+      }),
+    },
+  ),
+  store,
+});
+
+// When deployed, each authenticated request resolves
+// `rt.serverInfo.user.identity` to the calling user, so Alice and Bob
+// automatically see only their own preferences.
+await agent.invoke(
+  { messages: [{ role: "user", content: "How do I read a CSV file?" }] },
+  { configurable: { thread_id: uuidv4() } },
+);
+```
+
+
+</Accordion>
+
 ## Advanced usage
 
-The sections above cover the basics: configure memory paths, choose a scope, and let the agent handle the rest. This section covers more advanced patterns.
+On top of the basic configuration options for memory paths and scope, you can also configure more advanced parameters for memory:
 
 | Dimension | Question it answers | Options |
 |---|---|---|
-| **Duration** | How long does it last? | [Short-term](/oss/javascript/deepagents/context-engineering) (single conversation) or [long-term](#quick-start) (across conversations) |
-| **Information type** | What kind of information is it? | [Episodic](#episodic-memory) (past experiences), [procedural](#skills-as-procedural-memory) (instructions and skills), or [semantic](/oss/javascript/concepts/memory#semantic-memory) (facts) |
+| **Duration** | How long does it last? | [Short-term](/oss/javascript/deepagents/context-engineering) (single conversation) or [long-term](#scoped-memory) (across conversations) |
+| **Information type** | What kind of information is it? | [Episodic](#episodic-memory) (past experiences), [procedural](/oss/javascript/deepagents/skills) (instructions and skills), or [semantic](/oss/javascript/concepts/memory#semantic-memory) (facts) |
 | **Scope** | Who can see and modify it? | [User](#user-scoped-memory), [agent](#agent-scoped-memory), or [organization](#organization-level-memory) |
 | **Update strategy** | When are memories written? | During conversation (default) or [between conversations](#background-consolidation) |
-| **Retrieval** | How are memories read? | Loaded into prompt (default) or on demand (e.g., [skills](#skills-as-procedural-memory)) |
+| **Retrieval** | How are memories read? | Loaded into prompt (default) or on demand (e.g., [skills](/oss/javascript/deepagents/skills)) |
 | **Agent permissions** | Can the agent write to memory? | [Read-write](#read-only-vs-writable-memory) (default) or [read-only](#read-only-vs-writable-memory) (for shared policies) |
 
 ### Episodic memory
 
 Episodic memory stores records of past experiences: what happened, in what order, and what the outcome was. Unlike semantic memory (facts and preferences stored in files like `AGENTS.md`), episodic memory preserves the full conversational context so the agent can recall *how* a problem was solved, not just *what* was learned from it.
 
-Deep Agents get episodic memory for free through [checkpointers](/oss/javascript/langgraph/persistence#checkpoints): every conversation is persisted as a checkpointed thread. To make past conversations searchable, wrap thread search in a tool. The `user_id` is pulled from the runtime context rather than passed as a parameter:
+Deep Agents already use [checkpointers](/oss/javascript/langgraph/persistence#checkpoints) which is the mechanism that supports episodic memory: every conversation is persisted as a checkpointed thread.
+
+To make past conversations searchable, wrap thread search in a tool. The `user_id` is pulled from the runtime context rather than passed as a parameter:
 
 
 
 ```typescript
 import { Client } from "@langchain/langgraph-sdk";
-import { getConfig } from "@langchain/langgraph";
 import { tool } from "@langchain/core/tools";
 
 const client = new Client({ apiUrl: "<DEPLOYMENT_URL>" });
 
 const searchPastConversations = tool(
-  async ({ query }: { query: string }) => {
-    const config = getConfig();
-    const userId = config.metadata.userId;
+  async ({ query }, runtime) => {
+    const userId = runtime.serverInfo.user.identity;  // [!code highlight]
     const threads = await client.threads.search({
       metadata: { userId },
       limit: 5,
@@ -143,36 +304,9 @@ const orgThreads = await client.threads.search({
 
 This is useful for agents that perform complex, multi-step tasks. For example, a coding agent can look back at a past debugging session and skip straight to the likely root cause.
 
-### Skills as procedural memory
-
-[Skills](/oss/javascript/deepagents/skills) are a form of [procedural memory](/oss/javascript/concepts/memory#procedural-memory): reusable instructions that tell the agent *how* to perform a task. Unlike semantic memory (facts) or episodic memory (experiences), procedural memory encodes step-by-step capabilities the agent can apply on demand.
-
-Skills can be either:
-- **Read-only** (developer-defined): The developer writes skills and the agent uses them but cannot modify them. This is the most common pattern.
-- **Read-write** (agent-learned): The agent creates and updates skills based on experience. When the agent has write access to memory, it can also write to its skills directory. Use [policy hooks](/oss/javascript/deepagents/backends#add-policy-hooks) to control which paths are writable.
-
-Skills are typically **agent-scoped** (shared across all users), but can also be user-scoped if stored in a user-namespaced backend.
-
-In Deep Agents, pass skills via the `skills=` parameter. Skills are loaded on demand rather than injected into every prompt, keeping context lean until a capability is needed:
-
-
-
-```typescript
-import { createDeepAgent } from "deepagents";
-
-const agent = createDeepAgent({
-  memory: ["/memories/AGENTS.md"],
-  skills: ["/skills/"],
-  // ...backend configuration
-});
-```
-
-
-For a complete guide on defining, organizing, and using skills, see the [Skills](/oss/javascript/deepagents/skills) documentation.
-
 ### Organization-level memory
 
-Organization-level memory follows the same pattern as user-scoped memory, but with a shared namespace instead of a per-user one. Use it for policies or knowledge that should apply across all users and agents.
+Organization-level memory follows the same pattern as user-scoped memory, but with an organization-wide namespace instead of a per-user one. Use it for policies or knowledge that should apply across all users and agents in an organization.
 
 Organization memory is typically **read-only** to prevent prompt injection via shared state. See [read-only vs writable memory](#read-only-vs-writable-memory) for details.
 
@@ -190,10 +324,10 @@ const agent = createDeepAgent({
     new StateBackend(),
     {
       "/memories/": new StoreBackend({
-        namespace: (ctx) => [ctx.runtime.context.userId],
+        namespace: (rt) => [rt.serverInfo.user.identity],
       }),
       "/policies/": new StoreBackend({
-        namespace: (ctx) => [],
+        namespace: (rt) => [rt.context.orgId],
       }),
     },
   ),
@@ -212,7 +346,7 @@ import { createFileData } from "deepagents";
 const client = new Client({ apiUrl: "<DEPLOYMENT_URL>" });
 
 await client.store.putItem(
-  [],
+  [orgId],
   "/compliance.md",
   createFileData(`## Compliance policies
 - Never disclose internal pricing
@@ -222,7 +356,7 @@ await client.store.putItem(
 ```
 
 
-Use [policy hooks](/oss/javascript/deepagents/backends#add-policy-hooks) to enforce that org-level memory is read-only.
+Use [permissions](/oss/javascript/deepagents/permissions) to enforce that org-level memory is read-only, or [policy hooks](/oss/javascript/deepagents/backends#add-policy-hooks) for custom validation logic.
 
 ### Background consolidation
 
@@ -235,14 +369,7 @@ By default, the agent writes memories during the conversation (hot path). An alt
 
 For most applications, the hot path is sufficient. Add background consolidation when you need to reduce latency or improve memory quality across many conversations.
 
-All three approaches deploy a **consolidation agent** alongside your main agent: a deep agent that reads conversation history, extracts key facts, and merges them into the memory store.
-
-| Trigger | When it runs | Best for |
-|---|---|---|
-| **[Cron](#cron)** | Fixed schedule (e.g., every 6 hours) | Batching across many conversations, synthesizing trends |
-| **[Scheduled run](#scheduled-run)** | After a delay on the same thread | Simple setups where the client controls when consolidation fires |
-
-All three approaches use the same consolidation agent and deployment configuration. Define these once, then choose a trigger.
+The recommended pattern is to deploy a **consolidation agent** alongside your main agent — a deep agent that reads recent conversation history, extracts key facts, and merges them into the memory store — and trigger it on a [cron schedule](#cron). Pick a cadence that reflects how often your users actually interact with the agent: a chat product with steady daily traffic might consolidate every few hours, while a tool used a handful of times per week only needs to run nightly or weekly. Consolidating much more often than users converse just burns tokens on no-op runs.
 
 #### Consolidation agent
 
@@ -253,15 +380,13 @@ The consolidation agent reads recent conversation history and merges key facts i
 ```typescript src/consolidation-agent.ts
 import { createDeepAgent } from "deepagents";
 import { Client } from "@langchain/langgraph-sdk";
-import { getConfig } from "@langchain/langgraph";
 import { tool } from "@langchain/core/tools";
 
 const sdkClient = new Client({ apiUrl: "<DEPLOYMENT_URL>" });
 
 const searchRecentConversations = tool(
-  async ({ query }: { query: string }) => {
-    const config = getConfig();
-    const userId = config.configurable.langgraph_auth_user_id;
+  async ({ query }, runtime) => {
+    const userId = runtime.serverInfo.user.identity;  // [!code highlight]
 
     const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
     const threads = await sdkClient.threads.search({
@@ -309,7 +434,7 @@ export { agent };
 
 #### Cron
 
-A [cron job](/langsmith/cron-jobs) runs the consolidation agent on a fixed schedule. The agent searches all recent conversations and synthesizes them into memory.
+A [cron job](/langsmith/cron-jobs) runs the consolidation agent on a fixed schedule. The agent searches recent conversations and synthesizes them into memory. Match the schedule to your usage patterns so consolidation runs roughly track real activity.
 
 ```mermaid
 graph LR
@@ -352,60 +477,9 @@ const cronJob = await client.crons.create(
 All cron schedules are interpreted in **UTC**. See [cron jobs](/langsmith/cron-jobs) for details on managing and deleting cron jobs.
 </Note>
 
-#### Scheduled run
-
-Schedule a run after each conversation using the `after_seconds` parameter. This is activity-driven: consolidation only fires when a user has been active. Pass the same `thread_id` so the consolidation agent has access to the conversation context.
-
-```mermaid
-graph LR
-    Store[(Memory store)] -.->|reads| Conv[Conversation]
-    Conv -->|after_seconds| Agent[Consolidation agent]
-    Agent -->|writes| Store
-
-    classDef trigger fill:#DCFCE7,stroke:#16A34A,stroke-width:2px,color:#14532D
-    classDef process fill:#DBEAFE,stroke:#2563EB,stroke-width:2px,color:#1E3A8A
-    classDef output fill:#F3E8FF,stroke:#9333EA,stroke-width:2px,color:#581C87
-
-    class Conv trigger
-    class Agent process
-    class Store output
-```
-
-The delay gives the conversation time to finish (the user may send follow-up messages) so the consolidation agent sees the full exchange.
-
-If the user sends another message during the delay, the new run's `multitask_strategy` controls what happens to the pending consolidation run. Use `rollback` on the new run to delete the stale consolidation run, then schedule a fresh one after the next response:
-
-
-
-```typescript
-import { Client } from "@langchain/langgraph-sdk";
-
-const client = new Client({ apiUrl: "<DEPLOYMENT_URL>" });
-
-// Schedule consolidation 30 minutes after the conversation
-await client.runs.create(
-  thread.thread_id,
-  "consolidation_agent",
-  {
-    input: { messages: [{ role: "user", content: "Consolidate recent memories." }] },
-    afterSeconds: 1800,
-  },
-);
-
-// If the user sends another message, use rollback on the new run
-// to delete the pending consolidation run before starting
-const stream = client.runs.stream(
-  thread.thread_id,
-  "agent",
-  {
-    input: { messages: [{ role: "user", content: newMessage }] },
-    multitaskStrategy: "rollback",
-  },
-);
-```
-
-
-See [double texting](/langsmith/double-texting) for details on how `multitask_strategy` controls the behavior of concurrent runs on the same thread.
+<Warning>
+The cron interval must match the lookback window inside the consolidation agent. The example above runs every 6 hours (`0 */6 * * *`) and the agent's `search_recent_conversations` tool looks back `timedelta(hours=6)` — keep these in sync. If the cron runs more often than the lookback, you'll reprocess the same conversations; if it runs less often, you'll drop memories that fall outside the window.
+</Warning>
 
 For more on deploying agents with background processes, see [going to production](/oss/javascript/deepagents/going-to-production).
 
@@ -416,15 +490,15 @@ By default, the agent can both read and write memory files. For shared state lik
 | Permission | Use case | How it works |
 |---|---|---|
 | **Read-write** (default) | User preferences, agent self-improvement, learned [skills](/oss/javascript/deepagents/skills) | Agent updates files via `edit_file` tool |
-| **Read-only** | Organization policies, compliance rules, shared knowledge bases, developer-defined [skills](/oss/javascript/deepagents/skills) | Populate via application code or the [Store API](/langsmith/custom-store). Use [policy hooks](/oss/javascript/deepagents/backends#add-policy-hooks) to block agent writes. |
+| **Read-only** | Organization policies, compliance rules, shared knowledge bases, developer-defined [skills](/oss/javascript/deepagents/skills) | Populate via application code or the [Store API](/langsmith/custom-store). Use [permissions](/oss/javascript/deepagents/permissions) to deny writes to specific paths, or [policy hooks](/oss/javascript/deepagents/backends#add-policy-hooks) for custom validation logic. |
 
 **Security considerations:** If one user can write to memory that another user reads, a malicious user could inject instructions into shared state. To mitigate this:
 
 - **Default to user scope** `(user_id)` unless you have a specific reason to share
 - Use **read-only memory** for shared policies (populate via application code, not the agent)
-- Add **human-in-the-loop** validation before the agent writes to shared memory. Use an [interrupt](/oss/javascript/langgraph/capabilities/human-in-the-loop) to require human approval for writes to sensitive paths.
+- Add **human-in-the-loop** validation before the agent writes to shared memory. Use an [interrupt](/oss/javascript/langgraph/interrupts) to require human approval for writes to sensitive paths.
 
-To enforce read-only memory, use [policy hooks](/oss/javascript/deepagents/backends#add-policy-hooks) on the backend to reject write operations to specific paths.
+To enforce read-only memory, use [permissions](/oss/javascript/deepagents/permissions) to declaratively deny writes to specific paths. For custom validation logic (rate limiting, audit logging, content inspection), use [backend policy hooks](/oss/javascript/deepagents/backends#add-policy-hooks).
 
 ### Concurrent writes
 
@@ -440,18 +514,18 @@ To give each agent its own memory in a shared deployment, add `assistant_id` to 
 
 ```typescript
 new StoreBackend({
-  namespace: (ctx) => {
-    const config = getConfig();
-    return [config.metadata.assistantId, ctx.runtime.context.userId];
-  },
+  namespace: (rt) => [
+    rt.serverInfo.assistantId,  // [!code highlight]
+    rt.serverInfo.user.identity,
+  ],
 })
 ```
 
 
-Use `(assistant_id,)` alone if you only need per-agent isolation without per-user scoping.
+Use `assistant_id` alone if you only need per-agent isolation without per-user scoping.
 
 <Tip>
-Use [LangSmith tracing](/langsmith/tracing) to audit what your agent writes to memory. Every file write appears as a tool call in the trace.
+Use [LangSmith tracing](/langsmith/trace-with-langgraph) to audit what your agent writes to memory. Every file write appears as a tool call in the trace.
 </Tip>
 
 ---
