@@ -50,9 +50,13 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 documents = TextLoader("../../how_to/state_of_the_union.txt").load()
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
 texts = text_splitter.split_documents(documents)
-retriever = FAISS.from_documents(
-    texts, HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-).as_retriever(search_kwargs={"k": 20})
+embeddings = HuggingFaceEmbeddings(
+    model_name="BAAI/bge-m3",
+    encode_kwargs={"normalize_embeddings": True},
+)
+retriever = FAISS.from_documents(texts, embeddings).as_retriever(
+    search_kwargs={"k": 20}
+)
 
 query = "What did the president say about Ketanji Brown Jackson"
 docs = retriever.invoke(query)
@@ -330,10 +334,10 @@ And if we are to advance liberty and justice, we need to secure the Border and f
 ---
 
 <div className="source-links">
-<Callout icon="edit">
-    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/python/integrations/document_transformers/infinity_rerank.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
-</Callout>
 <Callout icon="terminal-2">
     [Connect these docs](/use-these-docs) to Claude, VSCode, and more via MCP for real-time answers.
+</Callout>
+<Callout icon="edit">
+    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/python/integrations/document_transformers/infinity_rerank.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
 </Callout>
 </div>

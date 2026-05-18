@@ -1,9 +1,15 @@
 ---
 title: Going to production
-description: Take your Deep Agent to production with persistent memory, sandboxes, resilience middleware, and deployment options
+description: Take your deep agent to production with persistent memory, sandboxes, resilience middleware, and deployment options
 ---
 
-This guide covers considerations for taking a Deep Agent from a local prototype to a production deployment. It walks through scoping memory, configuring execution environments, adding guardrails, and connecting a frontend.
+import SandboxLifecycleFactoryAssistantPy from '/snippets/deepagents-sandbox-lifecycle-factory-assistant-py.mdx';
+import SandboxLifecycleFactoryAssistantTs from '/snippets/deepagents-sandbox-lifecycle-factory-assistant-ts.mdx';
+import SandboxLifecycleFactoryThreadPy from '/snippets/deepagents-sandbox-lifecycle-factory-thread-py.mdx';
+import SandboxLifecycleFactoryThreadTs from '/snippets/deepagents-sandbox-lifecycle-factory-thread-ts.mdx';
+
+This guide covers considerations for taking a deep agent from a local prototype to a production deployment. It walks through scoping memory, configuring execution environments, adding guardrails, and connecting a frontend.
+
 
 ## Overview
 
@@ -24,9 +30,9 @@ This page covers:
 
 ## LangSmith Deployments
 
-The fastest way to get a Deep Agent into production is [`deepagents deploy`](/oss/javascript/deepagents/deploy), which packages your agent configuration and deploys it as a LangSmith Deployment with one command. Alternatively, you can configure a [LangSmith Deployment](/langsmith/deployment) directly. Either path provisions the infrastructure your agent needs: [assistants](/langsmith/assistants), [threads](/langsmith/use-threads), [runs](/langsmith/runs), a store, and a checkpointer, so you don't have to set these up yourself. It also gives you [authentication](/langsmith/auth), [webhooks](/langsmith/use-webhooks), [cron jobs](/langsmith/cron-jobs), and [observability](/langsmith/observability) out of the box, and can expose your agent via [MCP](/langsmith/server-mcp) or [A2A](/langsmith/server-a2a).
+![Managed Deep Agents packages your agent configuration, tools, and runtime settings for LangSmith](/oss/images/deepagents/production/deepagents-deploy-config.png)
 
-For the CLI-based approach, see [Deploy with the CLI](/oss/javascript/deepagents/deploy). For manual setup, see the [LangSmith Deployments quickstart](/langsmith/deployment-quickstart).
+There are two hosted paths for Deep Agents. [Managed Deep Agents](/langsmith/deploy-managed-deep-agent) (private preview) provides an API-first runtime for creating, running, and operating deep agents in LangSmith. You can also configure a [LangSmith Deployment](/langsmith/deployment) directly when you need custom application code, custom routes, advanced authentication, or full Agent Server APIs. Either path provisions the infrastructure your agent needs: [assistants](/langsmith/assistants), [threads](/langsmith/use-threads), [runs](/langsmith/runs), a store, and a checkpointer, so you don't have to set these up yourself. It also gives you [authentication](/langsmith/auth), [webhooks](/langsmith/use-webhooks), [cron jobs](/langsmith/cron-jobs), and [observability](/langsmith/observability) out of the box, and can expose your agent via [MCP](/langsmith/server-mcp) or [A2A](/langsmith/server-a2a).
 
 All code snippets on this page use the following `langgraph.json` unless otherwise specified:
 
@@ -59,6 +65,8 @@ For the full set of configuration options (custom Docker steps, store indexing, 
 
 When your agent serves multiple users, you need to handle three concerns: verifying who each user is, controlling what they can access, and managing the credentials the agent uses to act on their behalf.
 
+![Three authentication layers compose: end-user auth, agent-acting-as-user auth, and team RBAC](/oss/images/deepagents/production/auth-layers.png)
+
 #### User identity and access control
 
 [LangSmith Deployments](/langsmith/deployment) supports [custom authentication](/langsmith/custom-auth) to establish user identity and [authorization handlers](/langsmith/auth) to control access to resources like threads, assistants, and store namespaces. Authorization handlers run after authentication succeeds and can:
@@ -67,7 +75,8 @@ When your agent serves multiple users, you need to handle three concerns: verify
 - Return filters so users only see their own resources
 - Deny access with HTTP 403 for unauthorized operations
 
-For a step-by-step tutorial, see [Make conversations private](/langsmith/resource-auth).
+If you deploy with the CLI, the [`[auth]`](/oss/javascript/deepagents/deploy#auth) section in `deepagents.toml` wires up Clerk, Supabase, or anonymous auth for you, and the [`[frontend]`](/oss/javascript/deepagents/deploy#frontend) section reuses the same configuration to gate the bundled chat UI.
+For a step-by-step tutorial, see [Make conversations private](/langsmith/resource-auth). For a walkthrough, watch the [custom auth video](https://www.youtube.com/watch?v=DkNqgCz8cjE).
 
 How you [scope memory](#scoping) and [execution environments](#execution-environment) determines what data is shared between users. See the sections below for details.
 
@@ -129,6 +138,8 @@ When building for production:
 
 Deep Agents run on LangGraph, which provides [durable execution](/oss/javascript/langgraph/durable-execution) out of the box. The [persistence](/oss/javascript/langgraph/persistence) layer checkpoints state at each step, so a run interrupted by a failure, timeout, or [human-in-the-loop](/oss/javascript/langgraph/interrupts) pause resumes from its last recorded state without reprocessing previous steps. For long-running deep agents that spawn many subagents, this means a mid-run failure doesn't lose completed work.
 
+![Durable execution: when a worker crashes mid-run, another worker picks the run up from the latest checkpoint](/oss/images/deepagents/production/durable-execution.png)
+
 Checkpointing also enables:
 
 - **Indefinite [interrupts](/oss/javascript/langgraph/interrupts).** Human-in-the-loop workflows can pause for minutes or days and resume exactly where they left off.
@@ -142,6 +153,8 @@ Checkpointing also enables:
 ## Memory
 
 Without memory, every conversation starts from scratch. Memory lets your agent retain information across conversations (user preferences, learned instructions, past experiences) so it can personalize its behavior over time. For an overview of memory types, see the [memory concepts guide](/oss/javascript/concepts/memory).
+
+![Short-term memory is scoped to a single thread via checkpoints; long-term memory persists across threads via the store](/oss/images/deepagents/production/memory.png)
 
 ### Scoping
 
@@ -159,7 +172,9 @@ Shared memory (assistant, user, or organization scope) is a vector for prompt in
 
 ### Configuration
 
-In Deep Agents, memory is stored as files in a virtual filesystem. By default, files only last for a single conversation. To persist them, route a path like `/memories/` to a [StoreBackend](https://reference.langchain.com/javascript/deepagents/backends/StoreBackend) that writes to the LangGraph [Store](/langsmith/custom-store). Use a [CompositeBackend](https://reference.langchain.com/javascript/deepagents/backends/CompositeBackend) to give the agent both ephemeral scratch space and persistent [long-term memory](/oss/javascript/deepagents/memory).
+In Deep Agents, memory is stored as files in a virtual filesystem. By default, files are scoped to a single thread (conversation) and not shared across threads. 
+If you deploy with [`deepagents deploy`](/oss/javascript/deepagents/deploy), per-user writable memory is built in: a `user/AGENTS.md` template under your project root is automatically scoped per authenticated user. See [User Memory](/oss/javascript/deepagents/deploy#user-memory) for the CLI shortcut and [Subagents](/oss/javascript/deepagents/deploy#subagents) for per-subagent isolated namespaces.
+Otherwise, to share memory across threads, route a path like `/memories/` to a [StoreBackend](https://reference.langchain.com/javascript/deepagents/backends/StoreBackend) that writes to the LangGraph [Store](/langsmith/custom-store). Use a [CompositeBackend](https://reference.langchain.com/javascript/deepagents/backends/CompositeBackend) to give the agent both thread-scoped scratch space and cross-thread [long-term memory](/oss/javascript/deepagents/memory).
 
 
 
@@ -275,16 +290,18 @@ For the full namespace factory API, see [namespace factories](/oss/javascript/de
 
 Locally, agents can read and write files on disk and run shell commands directly. In production, you need to think about isolation and persistence. The right setup depends on whether your agent needs to execute code:
 
-- **Filesystem backends** are enough if your agent only reads and writes files. Choose a backend that matches your persistence needs: ephemeral scratch space, persistent storage, or a mix of both.
+- **Filesystem backends** are enough if your agent only reads and writes files. Choose a backend that matches your persistence needs: thread-scoped scratch space, cross-thread storage, or a mix of both.
 - **Sandboxes** add an isolated container with an `execute` tool for running shell commands. Use a sandbox if your agent needs to run code, install packages, or do anything beyond file I/O.
 
 ### Filesystem
 
 Choose a backend based on what needs to persist:
 
-- [StateBackend](https://reference.langchain.com/javascript/deepagents/backends/StateBackend) (default): ephemeral scratch space, scoped to a single conversation. Checkpointed at every step, so avoid writing large files.
-- [StoreBackend](https://reference.langchain.com/javascript/deepagents/backends/StoreBackend): persistent storage that survives across conversations. Scope with a [namespace factory](/oss/javascript/deepagents/backends#namespace-factories).
-- [CompositeBackend](https://reference.langchain.com/javascript/deepagents/backends/CompositeBackend): mix both. Ephemeral scratch space by default with persistent routes for specific paths like `/memories/`.
+- [StateBackend](https://reference.langchain.com/javascript/deepagents/backends/StateBackend) (default): thread-scoped scratch space. Files persist across turns within a thread via your checkpointer but are not shared across threads. Checkpointed at every step, so avoid writing large files.
+- [StoreBackend](https://reference.langchain.com/javascript/deepagents/backends/StoreBackend): cross-thread storage that survives across conversations. Scope with a [namespace factory](/oss/javascript/deepagents/backends#namespace-factories).
+- [CompositeBackend](https://reference.langchain.com/javascript/deepagents/backends/CompositeBackend): mix both. Thread-scoped scratch space by default with cross-thread routes for specific paths like `/memories/`.
+
+
 
 For the full list of backends and how to build custom ones, see [backends](/oss/javascript/deepagents/backends).
 
@@ -295,6 +312,10 @@ For the full list of backends and how to build custom ones, see [backends](/oss/
 ### Sandboxes
 
 If your agent needs to run code (not just read and write files), use a [sandbox](/oss/javascript/deepagents/sandboxes). Sandboxes provide both a filesystem and an `execute` tool for running shell commands, all inside an isolated container. This isolation also protects your host: if the agent's code exhausts memory or crashes, only the sandbox is affected. Your server keeps running.
+
+<Tip>
+For CLI-based deploys, declare your sandbox provider, template, image, and scope under [`[sandbox]`](/oss/javascript/deepagents/deploy#sandbox) in `deepagents.toml`—the bundler installs the matching `langchain-*` package and wires the sandbox into the deployed agent for you.
+</Tip>
 
 #### Lifecycle
 
@@ -315,28 +336,7 @@ The examples below use an async [graph factory](/langsmith/graph-rebuild) instea
 
 
 
-```typescript src/agent.ts
-import { Daytona } from "@daytonaio/sdk";
-import { DaytonaSandbox } from "@langchain/daytona";
-import { createDeepAgent } from "deepagents";
-import type { LangGraphRunnableConfig } from "@langchain/langgraph";
-
-const client = new Daytona();
-
-export async function agent(config: LangGraphRunnableConfig) {
-  const threadId = config.configurable?.thread_id as string;  // [!code highlight]
-  let sandbox;
-  try {
-    sandbox = await client.findOne({ labels: { thread_id: threadId } });
-  } catch {
-    sandbox = await client.create({
-      labels: { thread_id: threadId },
-      autoDeleteInterval: 3600, // TTL: clean up when idle
-    });
-  }
-  return createDeepAgent({ backend: await DaytonaSandbox.fromId(sandbox.id) });
-}
-```
+<SandboxLifecycleFactoryThreadTs />
 
 
   </Tab>
@@ -345,25 +345,7 @@ export async function agent(config: LangGraphRunnableConfig) {
 
 
 
-```typescript src/agent.ts
-import { Daytona } from "@daytonaio/sdk";
-import { DaytonaSandbox } from "@langchain/daytona";
-import { createDeepAgent } from "deepagents";
-import type { LangGraphRunnableConfig } from "@langchain/langgraph";
-
-const client = new Daytona();
-
-export async function agent(config: LangGraphRunnableConfig) {
-  const assistantId = config.configurable?.assistant_id as string;  // [!code highlight]
-  let sandbox;
-  try {
-    sandbox = await client.findOne({ labels: { assistant_id: assistantId } });
-  } catch {
-    sandbox = await client.create({ labels: { assistant_id: assistantId } });
-  }
-  return createDeepAgent({ backend: await DaytonaSandbox.fromId(sandbox.id) });
-}
-```
+<SandboxLifecycleFactoryAssistantTs />
 
 
     <Warning>
@@ -551,6 +533,8 @@ Sandboxes are isolated containers, so environment variables from your host aren'
 
 **Auth proxy (recommended).** The [sandbox auth proxy](/langsmith/sandbox-auth-proxy) intercepts outbound requests from the sandbox and injects authentication headers automatically. Sandbox code calls external APIs normally, and the proxy adds the correct credentials based on the destination host. This means API keys never appear in sandbox code, environment variables, or logs.
 
+![The sandbox auth proxy injects credentials into outbound requests so secrets never enter the sandbox](/oss/images/deepagents/production/sandbox-auth-proxy.png)
+
 ```json
 {
   "proxy_config": {
@@ -576,7 +560,7 @@ Sandboxes are isolated containers, so environment variables from your host aren'
 
 The `${SECRET_KEY}` references resolve against secrets stored in your LangSmith [workspace settings](/langsmith/set-up-hierarchy#configure-workspace-settings). Configure secrets there before creating a template that references them.
 
-**Workspace secrets.** For API keys that don't need proxy-based injection (e.g., keys used by the agent server itself, not sandbox code), store them as [workspace secrets](/langsmith/set-up-hierarchy#configure-workspace-settings) in LangSmith. These are available as environment variables at runtime for all agents in the workspace.
+**Workspace secrets.** For API keys that don't need proxy-based injection (e.g., keys used by the agent server itself, not sandbox code), store them as [workspace secrets](/langsmith/set-up-hierarchy#configure-workspace-settings) in LangSmith. These are available as environment variables at runtime for all agents in the workspace. If you deploy via the CLI, the [`.env` file](/oss/javascript/deepagents/deploy#environment-variables) alongside `deepagents.toml` is uploaded with your bundle for agent-server keys; reserve the auth proxy for anything sandbox code calls.
 
 <Warning>
 Avoid passing secrets into sandboxes via environment variables or file uploads. Agents can read any accessible file or environment variable inside the sandbox, including credentials. The auth proxy keeps secrets out of the sandbox entirely.
@@ -586,8 +570,14 @@ Avoid passing secrets into sandboxes via environment variables or file uploads. 
 
 Agents in production run autonomously, which means they can loop indefinitely, hit rate limits, or process user data that contains sensitive information. Deep Agents provide two layers of protection:
 
+<Note>
+Custom middleware is not currently configurable through [`deepagents deploy`](/oss/javascript/deepagents/deploy#limitations)). To apply the middleware patterns below, deploy directly via [LangSmith Deployments](/langsmith/deployment) with your own agent module.
+</Note>
+
 - **[Permissions](/oss/javascript/deepagents/permissions)**: declarative allow/deny rules that control which files and directories the agent can read or write. Use permissions to isolate the agent to a working directory, protect sensitive files, or enforce read-only memory.
 - **[Middleware](/oss/javascript/langchain/middleware/built-in)**: hooks that wrap model and tool calls for rate limiting, error handling, and data privacy.
+
+![Middleware hooks—before_model, wrap_model_call, wrap_tool_call, after_model—wrap the agent loop so policies run deterministically around every relevant step](/oss/images/deepagents/production/middleware-lifecycle.png)
 
 ### Rate limiting
 
@@ -601,7 +591,7 @@ Without limits, a confused agent can burn through your LLM API budget in minutes
 import { createAgent, modelCallLimitMiddleware, toolCallLimitMiddleware } from "langchain";
 
 const agent = createAgent({
-  model: "claude-sonnet-4-6",
+  model: "google_genai:gemini-3.1-pro-preview",
   middleware: [
     modelCallLimitMiddleware({ runLimit: 50 }),
     toolCallLimitMiddleware({ runLimit: 200 }),
@@ -629,12 +619,12 @@ import {
 } from "langchain";
 
 const agent = createAgent({
-  model: "claude-sonnet-4-6",
+  model: "google_genai:gemini-3.1-pro-preview",
   middleware: [
     // Retry model calls on rate limits, timeouts, and 5xx errors
     modelRetryMiddleware({ maxRetries: 3, backoffFactor: 2.0, initialDelayMs: 1000 }),
     // If the primary model is fully down, fall back to an alternative
-    modelFallbackMiddleware("gpt-4.1"),
+    modelFallbackMiddleware("gpt-5.4"),
     // Retry specific tools that hit external APIs (not all tools)
     toolRetryMiddleware({
       maxRetries: 2,
@@ -658,7 +648,7 @@ If your agent processes user input that might contain emails, credit card number
 import { createAgent, piiMiddleware } from "langchain";
 
 const agent = createAgent({
-  model: "claude-sonnet-4-6",
+  model: "google_genai:gemini-3.1-pro-preview",
   middleware: [
     piiMiddleware("email", { strategy: "redact", applyToInput: true }),
     piiMiddleware("credit_card", { strategy: "mask", applyToInput: true }),
@@ -677,6 +667,10 @@ For the complete list of available middleware, see [prebuilt middleware](/oss/ja
 ## Frontend
 
 Deep Agents use [`useStream`](/oss/javascript/langchain/frontend/overview) to connect your UI to the agent backend. `useStream` is a frontend hook (available for React, Vue, Svelte, and Angular) that streams messages, subagent progress, and custom state from your agent in real time.
+
+<Tip>
+If you don't need a custom UI, [`deepagents deploy`](/oss/javascript/deepagents/deploy) ships a prebuilt React chat UI mounted at `/app` on your deployment URL—see [`[frontend]`](/oss/javascript/deepagents/deploy#frontend) for the configuration. The bundled UI handles streaming, thread picking, live todos/files/subagent panels, and Clerk/Supabase/anonymous auth out of the box.
+</Tip>
 
 Locally, `useStream` points at `http://localhost:2024`. In production, point it at your [LangSmith Deployment](/langsmith/deployment) and configure reconnection so users don't lose progress if their connection drops.
 
@@ -712,10 +706,10 @@ For UI patterns specific to deep agents, such as subagent cards, todo lists, and
 ---
 
 <div className="source-links">
-<Callout icon="edit">
-    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/deepagents/going-to-production.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
-</Callout>
 <Callout icon="terminal-2">
     [Connect these docs](/use-these-docs) to Claude, VSCode, and more via MCP for real-time answers.
+</Callout>
+<Callout icon="edit">
+    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/deepagents/going-to-production.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
 </Callout>
 </div>

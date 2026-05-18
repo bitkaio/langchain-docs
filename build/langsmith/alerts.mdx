@@ -24,7 +24,7 @@ Alerts in LangSmith are project-scoped, requiring separate configuration for eac
 
 ### Step 1: Navigate to create alert
 
-In the [UI](https://smith.langchain.com), navigate to the Tracing project that you would like to configure alerts for. Click the **Alerts** icon on the top right hand corner of the page to view existing alerts for that project and set up a new alert.
+In the [UI](https://smith.langchain.com?utm_source=docs&utm_medium=cta&utm_campaign=langsmith-signup&utm_content=langsmith-alerts), navigate to the Tracing project that you would like to configure alerts for. Click the **Alerts** icon on the top right hand corner of the page to view existing alerts for that project and set up a new alert.
 
 ### Step 2: Select metric type
 
@@ -118,7 +118,7 @@ You can preview alert behavior over a historical time window to understand how m
     ![PagerDuty Setup](/langsmith/images/pagerduty-setup.png)
 
     1. In the notification section of your alert set-up in LangSmith, select **PagerDuty**
-    2. Click the key icon to save the Integration Key as a Workspace secret or select an existing Workspace secret. As a best practice, we recommend saving the Integration Key as a Workspace Secret rather than adding it directly. This will allow you to re-use the same key across alerts for a workspace.
+    2. Click the key icon to save the Integration Key as a Workspace secret or select an existing Workspace secret. As a best practice, we recommend saving the Integration Key as a Workspace Secret rather than adding it directly. This will allow you to reuse the same key across alerts for a workspace.
     3. Configure additional notification options:
        - **Severity**: Maps to PagerDuty incident priority
     4. Send a test alert by clicking **Send Test Alert**
@@ -173,7 +173,7 @@ You can preview alert behavior over a historical time window to understand how m
 
     1. In the **Notifications Settings** for your alert setup in LangSmith, select **Dynatrace**.
     1. Enter your Dynatrace environment URL.
-    1. Click the key icon to save the API token as a workspace secret or select an existing workspace secret. As a best practice, save the API token as a workspace secret rather than adding it directly. This allows you to re-use the same token across alerts for a workspace.
+    1. Click the key icon to save the API token as a workspace secret or select an existing workspace secret. As a best practice, save the API token as a workspace secret rather than adding it directly. This allows you to reuse the same token across alerts for a workspace.
     1. Configure additional notification options:
        - **Event Type**: Select the Dynatrace event type (e.g., `CUSTOM_ALERT`, `ERROR_EVENT`)
     1. Send a test alert by clicking **Send Test Notification**.
@@ -403,10 +403,10 @@ You can preview alert behavior over a historical time window to understand how m
 ---
 
 <div className="source-links">
-<Callout icon="edit">
-    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/langsmith/alerts.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
-</Callout>
 <Callout icon="terminal-2">
     [Connect these docs](/use-these-docs) to Claude, VSCode, and more via MCP for real-time answers.
+</Callout>
+<Callout icon="edit">
+    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/langsmith/alerts.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
 </Callout>
 </div>

@@ -23,7 +23,7 @@ npm install @langchain/langgraph
 <Tip>
 **Set up LangSmith for better debugging**
 
-Sign up for [LangSmith](https://smith.langchain.com) to quickly spot issues and improve the performance of your LangGraph projects. LangSmith lets you use trace data to debug, test, and monitor your LLM apps built with LangGraph—read more about how to get started in the [docs](/langsmith/observability).
+Sign up for [LangSmith](https://smith.langchain.com?utm_source=docs&utm_medium=cta&utm_campaign=langsmith-signup&utm_content=oss-langgraph-use-graph-api) to quickly spot issues and improve the performance of your LangGraph projects. LangSmith lets you use trace data to debug, test, and monitor your LLM apps built with LangGraph—read more about how to get started in the [docs](/langsmith/observability).
 </Tip>
 
 ## Define and update state
@@ -646,7 +646,7 @@ console.log(await graph.invoke({}, { context: { myRuntimeValue: "b" } }));  // [
 
   const MODELS = {
     anthropic: new ChatAnthropic({ model: "claude-haiku-4-5-20251001" }),
-    openai: new ChatOpenAI({ model: "gpt-4.1-mini" }),
+    openai: new ChatOpenAI({ model: "gpt-5.4-mini" }),
   };
 
   const callModel: GraphNode<typeof State> = async (state, config) => {
@@ -678,7 +678,7 @@ console.log(await graph.invoke({}, { context: { myRuntimeValue: "b" } }));  // [
 
   ```
   claude-haiku-4-5-20251001
-  gpt-4.1-mini-2025-04-14
+  gpt-5.4-mini
   ```
 
 </Accordion>
@@ -706,7 +706,7 @@ console.log(await graph.invoke({}, { context: { myRuntimeValue: "b" } }));  // [
 
   const MODELS = {
     anthropic: new ChatAnthropic({ model: "claude-haiku-4-5-20251001" }),
-    openai: new ChatOpenAI({ model: "gpt-4.1-mini" }),
+    openai: new ChatOpenAI({ model: "gpt-5.4-mini" }),
   };
 
   const callModel: GraphNode<typeof State> = async (state, config) => {
@@ -832,6 +832,8 @@ By default, the retry policy retries on any exception except for the following:
   ```
 
 </Accordion>
+
+
 
 
 
@@ -1437,10 +1439,9 @@ const graph = new StateGraph(State)
 ```
 
 
+
+
 To control the recursion limit, specify `"recursionLimit"` in the config. This will raise a `GraphRecursionError`, which you can catch and handle:
-
-
-
 ```typescript
 import { GraphRecursionError } from "@langchain/langgraph";
 
@@ -1897,10 +1898,10 @@ await fs.writeFile("graph.png", imageBuffer);
 ---
 
 <div className="source-links">
-<Callout icon="edit">
-    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/langgraph/use-graph-api.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
-</Callout>
 <Callout icon="terminal-2">
     [Connect these docs](/use-these-docs) to Claude, VSCode, and more via MCP for real-time answers.
+</Callout>
+<Callout icon="edit">
+    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/langgraph/use-graph-api.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
 </Callout>
 </div>

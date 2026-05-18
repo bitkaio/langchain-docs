@@ -53,7 +53,7 @@ Your custom system prompt is prepended to the built-in system prompt, which incl
 from deepagents import create_deep_agent
 
 agent = create_deep_agent(
-    model="claude-sonnet-4-6",
+    model="google_genai:gemini-3.1-pro-preview",
     system_prompt=(
         "You are a research assistant specializing in scientific literature. "
         "Always cite sources. Use subagents for parallel research on different topics."
@@ -74,13 +74,17 @@ You do **not** need middleware when tools alone use context or `runtime.store`; 
 
 
 
+<Tip>
+    To adjust the assembled system prompt for a specific provider or model, use a [harness profile](/oss/python/deepagents/profiles#harness-profiles): `base_system_prompt` replaces the base prompt outright, and `system_prompt_suffix` appends to it.
+</Tip>
+
 ### Memory
 
 Memory files ([`AGENTS.md`](https://agents.md/)) provide persistent context that is **always loaded** into the system prompt. Use memory for project conventions, user preferences, and critical guidelines that should apply to every conversation:
 
 ```python
 agent = create_deep_agent(
-    model="claude-sonnet-4-6",
+    model="google_genai:gemini-3.1-pro-preview",
     memory=["/project/AGENTS.md", "~/.deepagents/preferences.md"],
 )
 ```
@@ -96,7 +100,7 @@ Skills provide **on-demand** capabilities. The agent reads frontmatter from each
 
 ```python
 agent = create_deep_agent(
-    model="claude-sonnet-4-6",
+    model="google_genai:gemini-3.1-pro-preview",
     skills=["/skills/research/", "/skills/web-search/"],
 )
 ```
@@ -108,7 +112,7 @@ Keep each skill focused on a single workflow or domain; broad or overlapping ski
 
 ### Tool prompts
 
-[Tool](/oss/python/langchain/tools) prompts are instructions that shape how the model uses tools. All tools expose metadata the model sees in its prompt—typically a schema and a description. Tools you pass via the `tools` parameter surface that tool metadata (schema and descriptions) to the model. Deep Agents built-in tools are packaged in middleware and typically also update the system prompt with more guidance for those tools.
+[Tool](/oss/python/langchain/tools) prompts are instructions that shape how the model uses tools. All tools expose metadata the model sees in its prompt—typically a schema and a description. Tools you pass via the `tools` parameter surface that tool metadata (schema and descriptions) to the model. A deep agent's built-in tools are packaged in middleware and typically also update the system prompt with more guidance for those tools.
 
 **Built-in tools** – Middleware that adds harness capabilities (planning, filesystem, subagents) automatically appends tool-specific instructions to the system prompt, creating tool prompts that explain how to use those tools effectively:
 - Planning prompt – Instructions for `write_todos` to maintain a structured task list
@@ -144,6 +148,10 @@ def search_orders(
 
 
 
+
+<Tip>
+    To override a built-in or user-supplied tool's description for a specific provider or model, use a [harness profile](/oss/python/deepagents/profiles#harness-profiles)'s `tool_description_overrides` keyed by tool name. `excluded_tools` removes a tool from the visible tool set entirely.
+</Tip>
 
 See [Harness](/oss/python/deepagents/harness) for built-in capabilities and [Customization](/oss/python/deepagents/customization#tools) for passing tools directly.
 
@@ -187,7 +195,7 @@ def fetch_user_data(query: str, runtime: ToolRuntime[Context]) -> str:
     return f"Data for user {user_id}: {query}"
 
 agent = create_deep_agent(
-    model="claude-sonnet-4-6",
+    model="google_genai:gemini-3.1-pro-preview",
     tools=[fetch_user_data],
     context_schema=Context,
 )
@@ -235,6 +243,8 @@ Content offloading happens when tool call inputs or results exceed a token thres
 
 ### Summarization
 
+
+
 When the context size crosses the model's context window limit (for example 85% of `max_input_tokens`), and there is no more context eligible for offloading, the deep agent summarizes the message history.
 
 This process has two components:
@@ -250,12 +260,31 @@ This dual approach ensures the agent maintains awareness of its goals and progre
 - Triggers at 85% of the model's `max_input_tokens` from its [model profile](/oss/python/langchain/models#model-profiles)
 - Keeps 10% of tokens as recent context
 - Falls back to 170,000-token trigger / 6 messages kept if model profile is unavailable
-- If any model call raises a standard [ContextOverflowError](https://reference.langchain.com/python/langchain-core/exceptions/ContextOverflowError), Deep Agents immediately falls back to summarization and retries with summary + recent preserved messages
+- If any model call raises a standard [ContextOverflowError](https://reference.langchain.com/python/langchain-core/exceptions/ContextOverflowError), the deep agent immediately falls back to summarization and retry with summary + recent preserved messages
 - Older messages are summarized by the model
+
+<Tip>
+[Streaming tokens](/oss/python/deepagents/streaming#llm-tokens) from the agent will generally include tokens generated by the summarization step. You can filter out these tokens using their associated metadata:
+```python
+for chunk in agent.stream(
+    {"messages": [...]},
+    stream_mode="messages",
+    version="v2",
+):
+    token, metadata = chunk["data"]
+    if metadata.get("lc_source") == "summarization":  # [!code highlight]
+        continue
+    else:
+        ...
+```
+</Tip>
+
+
+
 
 ##### Summarization Tool
 
-Deep Agents includes an optional [tool](/oss/python/langchain/tools) for summarization, enabling agents to trigger summarization at opportune times—such as between tasks—instead of at fixed token intervals.
+Deep agents include an optional [tool](/oss/python/langchain/tools) for summarization, enabling agents to trigger summarization at opportune times—such as between tasks—instead of at fixed token intervals.
 
 You can enable this tool by appending it to the middleware list:
 
@@ -268,7 +297,7 @@ from deepagents.middleware.summarization import (
 
 backend = StateBackend  # if using default backend
 
-model = "openai:gpt-5.4"
+model = "google_genai:gemini-3.1-pro-preview"
 agent = create_deep_agent(
     model=model,
     middleware=[  # [!code highlight]
@@ -339,7 +368,7 @@ def make_backend(runtime):
     )
 
 agent = create_deep_agent(
-    model="claude-sonnet-4-6",
+    model="google_genai:gemini-3.1-pro-preview",
     store=InMemoryStore(),
     backend=make_backend,
     system_prompt="""When users tell you their preferences, save them to
@@ -379,10 +408,10 @@ See [Long-term memory](/oss/python/deepagents/memory) for setup and use cases.
 ---
 
 <div className="source-links">
-<Callout icon="edit">
-    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/deepagents/context-engineering.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
-</Callout>
 <Callout icon="terminal-2">
     [Connect these docs](/use-these-docs) to Claude, VSCode, and more via MCP for real-time answers.
+</Callout>
+<Callout icon="edit">
+    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/deepagents/context-engineering.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
 </Callout>
 </div>

@@ -43,7 +43,7 @@ retriever = VespaRetriever(vespa_app, vespa_query_body, vespa_content_field)
 
 This sets up a LangChain retriever that fetches documents from the Vespa application.
 Here, up to 5 results are retrieved from the `content` field in the `paragraph` document type,
-using `doumentation` as the ranking method. The `userQuery()` is replaced with the actual query
+using `documentation` as the ranking method. The `userQuery()` is replaced with the actual query
 passed from LangChain.
 
 Please refer to the [pyvespa documentation](https://pyvespa.readthedocs.io/en/latest/getting-started-pyvespa.html#Query)
@@ -58,10 +58,10 @@ retriever.invoke("what is vespa?")
 ---
 
 <div className="source-links">
-<Callout icon="edit">
-    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/python/integrations/retrievers/vespa.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
-</Callout>
 <Callout icon="terminal-2">
     [Connect these docs](/use-these-docs) to Claude, VSCode, and more via MCP for real-time answers.
+</Callout>
+<Callout icon="edit">
+    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/python/integrations/retrievers/vespa.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
 </Callout>
 </div>
