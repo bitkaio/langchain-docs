@@ -4,7 +4,7 @@
     from langchain_quickjs import CodeInterpreterMiddleware
     
     agent = create_deep_agent(
-        model="google_genai:gemini-3.1-pro-preview",
+        model="google_genai:gemini-3.5-flash",
         middleware=[CodeInterpreterMiddleware()],
     )
     ```
@@ -54,7 +54,7 @@
     from langchain_quickjs import CodeInterpreterMiddleware
     
     agent = create_deep_agent(
-        model="baseten:zai-org/GLM-5",
+        model="baseten:zai-org/GLM-5.2",
         middleware=[CodeInterpreterMiddleware()],
     )
     ```

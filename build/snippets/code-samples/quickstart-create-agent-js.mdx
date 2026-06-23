@@ -13,7 +13,7 @@
     `;
     
     const agent = createDeepAgent({
-      model: "google-genai:gemini-3.1-pro-preview",
+      model: "google-genai:gemini-3.5-flash",
       tools: [internetSearch],
       systemPrompt: researchInstructions,
     });
@@ -113,7 +113,7 @@
     `;
     
     const agent = createDeepAgent({
-      model: "baseten:zai-org/GLM-5",
+      model: "baseten:zai-org/GLM-5.2",
       tools: [internetSearch],
       systemPrompt: researchInstructions,
     });
